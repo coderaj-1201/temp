@@ -125,3 +125,60 @@ class TelemetryRequest(BaseModel):
     session_id: str = ""
     timestamp: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+# ── Evaluation models ─────────────────────────────────────────────────────────
+
+class EvaluationPayload(BaseModel):
+    """
+    Sent to the async evaluation queue after every successful answer.
+    Contains everything the Evaluation Agent needs — no DB lookups required.
+    """
+    answer_id: str
+    query: str
+    answer: str
+    domain: str
+    sources: list[dict]           # [{title, excerpt, url, relevance}]
+    confidence: float
+    attempts_used: int
+    processing_time_ms: int
+    user_id: str
+    conversation_id: str
+    evaluated_at: str = ""        # filled by eval agent
+
+
+class EvaluationResult(BaseModel):
+    """Stored in CosmosDB evaluations container + emitted to App Insights."""
+    id: str                       # = answer_id (CosmosDB item id)
+    answer_id: str
+    query: str
+    answer: str
+    domain: str
+    doc_names: list[str]
+    confidence: float
+    attempts_used: int
+    processing_time_ms: int
+    user_id: str
+    conversation_id: str
+    # ── Evaluation scores (1–5) ───────────────────────────────────────────────
+    groundedness: float           # is the answer supported by the retrieved context?
+    relevance: float              # did retrieval return the right chunks?
+    coherence: float              # is the answer well-formed and clear?
+    overall_score: float          # weighted average
+    evaluation_reasoning: str     # short LLM explanation of the scores
+    evaluated_at: str
+    evaluator_model: str
+
+
+class FeedbackRecord(BaseModel):
+    """Stored in CosmosDB feedback container."""
+    id: str                       # = feedback_id
+    feedback_id: str
+    answer_id: str
+    user_id: str
+    domain: str
+    rating: int                   # 1–5
+    is_accurate: bool
+    is_complete: bool
+    comment: str
+    submitted_at: str

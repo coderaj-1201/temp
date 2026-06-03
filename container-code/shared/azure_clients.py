@@ -1,17 +1,13 @@
 """
 Azure client factories — production grade.
-
-Key differences from local version:
-  - ManagedIdentityCredential (no az login, no API keys)
-  - No lru_cache — safe under multiple uvicorn workers (each process gets its own)
-  - Single AI Search index with domain metadata filter
-  - Service Bus via Managed Identity
+Fully keyless. Worker-safe per-process singletons.
 """
 from __future__ import annotations
 
 import os
 
 from azure.ai.projects import AIProjectClient
+from azure.cosmos.aio import CosmosClient
 from azure.identity import ManagedIdentityCredential, AzureCliCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
@@ -22,64 +18,71 @@ from shared.config import settings
 
 
 def _credential():
-    """Managed Identity in ACA; CLI credential for local container testing."""
     if os.getenv("RUNNING_IN_AZURE"):
         return ManagedIdentityCredential()
     return AzureCliCredential()
 
 
-# ── Per-process singletons (module-level, worker-safe) ───────────────────────
-# Initialised once per worker process on first import.
-
-_foundry_client: AIProjectClient | None = None
-_openai_client: AzureOpenAI | None = None
-_search_client: SearchClient | None = None
-_search_index_client: SearchIndexClient | None = None
+_foundry: AIProjectClient | None = None
+_openai: AzureOpenAI | None = None
+_search: SearchClient | None = None
+_search_index: SearchIndexClient | None = None
+_cosmos: CosmosClient | None = None
 
 
 def get_foundry_client() -> AIProjectClient:
-    global _foundry_client
-    if _foundry_client is None:
-        _foundry_client = AIProjectClient(
+    global _foundry
+    if _foundry is None:
+        _foundry = AIProjectClient(
             endpoint=str(settings.AZURE_FOUNDRY_PROJECT_ENDPOINT),
             credential=_credential(),
         )
-    return _foundry_client
+    return _foundry
 
 
 def get_openai_client() -> AzureOpenAI:
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = get_foundry_client().inference.get_azure_openai_client(
+    global _openai
+    if _openai is None:
+        _openai = get_foundry_client().inference.get_azure_openai_client(
             api_version=settings.AZURE_OPENAI_API_VERSION
         )
-    return _openai_client
+    return _openai
 
 
 def get_search_client() -> SearchClient:
-    """Single index — domain filtering applied at query time via $filter."""
-    global _search_client
-    if _search_client is None:
-        _search_client = SearchClient(
+    global _search
+    if _search is None:
+        _search = SearchClient(
             endpoint=str(settings.AZURE_SEARCH_ENDPOINT),
             index_name=settings.AZURE_SEARCH_INDEX,
             credential=_credential(),
         )
-    return _search_client
+    return _search
 
 
 def get_search_index_client() -> SearchIndexClient:
-    global _search_index_client
-    if _search_index_client is None:
-        _search_index_client = SearchIndexClient(
+    global _search_index
+    if _search_index is None:
+        _search_index = SearchIndexClient(
             endpoint=str(settings.AZURE_SEARCH_ENDPOINT),
             credential=_credential(),
         )
-    return _search_index_client
+    return _search_index
+
+
+def get_cosmos_client() -> CosmosClient:
+    """Async CosmosDB client — use as async context manager or call aclose() on shutdown."""
+    global _cosmos
+    if _cosmos is None:
+        _cosmos = CosmosClient(
+            url=str(settings.AZURE_COSMOS_ENDPOINT),
+            credential=_credential(),
+        )
+    return _cosmos
 
 
 def get_service_bus_client() -> ServiceBusClient:
-    """New instance per use — ServiceBusClient is an async context manager."""
+    """New instance per use — always use as async context manager."""
     return ServiceBusClient(
         fully_qualified_namespace=settings.AZURE_SERVICE_BUS_NAMESPACE,
         credential=_credential(),
