@@ -63,8 +63,8 @@ Confidence: 0.9+ = fully answers, 0.7-0.89 = mostly, 0.5-0.69 = partial, <0.5 = 
 
 
 @step
-async def synthesize_answer(query: str, docs: list[SearchDocument]) -> tuple[str, float, list[SourceDocument]]:
-    if not docs:
+async def synthesize_answer(query: str, all_docs: list[SearchDocument]) -> tuple[str, float, list[SourceDocument]]:
+    if not all_docs:
         return "No relevant information found in the knowledge base.", 0.0, []
 
     context_parts = []

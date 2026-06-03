@@ -1,0 +1,58 @@
+version: "3.9"
+# Local dev retrieval pipeline — direct HTTP between agents (no Service Bus)
+# Usage: docker compose up --build
+
+x-common: &common
+  build:
+    context: .
+  env_file: agents/.env     # local .env lives in root
+  restart: on-failure
+
+services:
+
+  retrieval-agent:
+    <<: *common
+    build:
+      context: .
+      args:
+        AGENT_MODULE: agents.retrieval_agent
+        AGENT_PORT: "8002"
+    image: rag-retrieval:local
+    ports: ["8002:8002"]
+    environment:
+      AGENT_PORT: "8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 15s; timeout: 5s; retries: 3
+
+  orchestrator-agent:
+    <<: *common
+    build:
+      context: .
+      args:
+        AGENT_MODULE: agents.orchestrator_agent
+        AGENT_PORT: "8001"
+    image: rag-orchestrator:local
+    ports: ["8001:8001"]
+    environment:
+      AGENT_PORT: "8001"
+      RETRIEVAL_AGENT_URL: http://retrieval-agent:8002
+    depends_on:
+      retrieval-agent:
+        condition: service_healthy
+
+  main-agent:
+    <<: *common
+    build:
+      context: .
+      args:
+        AGENT_MODULE: agents.main_agent
+        AGENT_PORT: "8000"
+    image: rag-main:local
+    ports: ["8000:8000"]
+    environment:
+      AGENT_PORT: "8000"
+      ORCHESTRATOR_AGENT_URL: http://orchestrator-agent:8001
+    depends_on:
+      orchestrator-agent:
+        condition: service_healthy
