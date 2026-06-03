@@ -27,9 +27,10 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_VERSION: str = "2024-08-01-preview"
 
     # ── Azure AI Search ───────────────────────────────────────────────────────
-    # No API key needed — uses same AzureCliCredential / ManagedIdentity as Foundry
-    # Requires 'Search Index Data Reader' role assigned to your account/identity
+    # API key auth — no role assignment needed, works with Contributor access
+    # Portal: AI Search resource → Settings → Keys → Primary admin key
     AZURE_SEARCH_ENDPOINT: AnyHttpUrl
+    AZURE_SEARCH_API_KEY: SecretStr
     AZURE_SEARCH_INDEX_HR: str = "idx-hr"
     AZURE_SEARCH_INDEX_LEGAL: str = "idx-legal"
     AZURE_SEARCH_INDEX_IT: str = "idx-it"

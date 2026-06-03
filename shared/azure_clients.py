@@ -15,6 +15,7 @@ import os
 from functools import lru_cache
 
 from azure.ai.projects import AIProjectClient
+from azure.core.credentials import AzureKeyCredential
 from azure.identity import AzureCliCredential, ManagedIdentityCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
@@ -54,15 +55,13 @@ def get_openai_client() -> AzureOpenAI:
 
 @lru_cache(maxsize=8)
 def get_search_client(index_name: str) -> SearchClient:
-    """
-    Keyless Search client using the same AzureCliCredential / ManagedIdentity.
-    Requires your account to have the 'Search Index Data Reader' role on the
-    Search service (one-time setup — see README).
-    """
+    """API key auth — works with Contributor access, no role assignment needed."""
     return SearchClient(
         endpoint=str(settings.AZURE_SEARCH_ENDPOINT),
         index_name=index_name,
-        credential=_credential(),
+        credential=AzureKeyCredential(
+            settings.AZURE_SEARCH_API_KEY.get_secret_value()
+        ),
     )
 
 
@@ -70,7 +69,9 @@ def get_search_client(index_name: str) -> SearchClient:
 def get_search_index_client() -> SearchIndexClient:
     return SearchIndexClient(
         endpoint=str(settings.AZURE_SEARCH_ENDPOINT),
-        credential=_credential(),
+        credential=AzureKeyCredential(
+            settings.AZURE_SEARCH_API_KEY.get_secret_value()
+        ),
     )
 
 
