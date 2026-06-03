@@ -1,0 +1,13 @@
+// infra/main.bicepparam
+// Fill in your values and rename to main.bicepparam
+
+using './main.bicep'
+
+param environmentName = 'prod'
+param location = 'eastus'
+param azureOpenAiEndpoint = 'https://<your-resource>.openai.azure.com/'
+param azureOpenAiChatDeployment = 'gpt-4o'
+param azureOpenAiEmbeddingDeployment = 'text-embedding-ada-002'
+param searchAdminKey = '<your-search-admin-key>'        // use az keyvault secret show or CI secret
+param teamsAppId = ''
+param teamsAppPassword = ''

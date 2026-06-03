@@ -1,0 +1,85 @@
+version: "3.9"
+
+# ── Local development: all three agents in Docker ────────────────────────────
+# Usage:
+#   cp .env.template .env   # fill in your Azure values
+#   docker compose up --build
+
+x-common-env: &common-env
+  env_file: .env
+  RETRIEVAL_MODE: http   # use direct HTTP between agents (no Service Bus locally)
+
+services:
+
+  retrieval-agent:
+    build:
+      context: .
+      args:
+        AGENT_MODULE: agents.retrieval_agent
+        AGENT_PORT: "8002"
+    image: rag-retrieval-agent:local
+    ports:
+      - "8002:8002"
+    environment:
+      <<: *common-env
+      AGENT_PORT: "8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: on-failure
+
+  orchestrator-agent:
+    build:
+      context: .
+      args:
+        AGENT_MODULE: agents.orchestrator_agent
+        AGENT_PORT: "8001"
+    image: rag-orchestrator-agent:local
+    ports:
+      - "8001:8001"
+    environment:
+      <<: *common-env
+      AGENT_PORT: "8001"
+      RETRIEVAL_AGENT_URL: http://retrieval-agent:8002
+    depends_on:
+      retrieval-agent:
+        condition: service_healthy
+    restart: on-failure
+
+  main-agent:
+    build:
+      context: .
+      args:
+        AGENT_MODULE: agents.main_agent
+        AGENT_PORT: "8000"
+    image: rag-main-agent:local
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *common-env
+      AGENT_PORT: "8000"
+      ORCHESTRATOR_AGENT_URL: http://orchestrator-agent:8001
+    depends_on:
+      orchestrator-agent:
+        condition: service_healthy
+    restart: on-failure
+
+  teams-bot:
+    build:
+      context: .
+      args:
+        AGENT_MODULE: app
+        AGENT_PORT: "3978"
+    image: rag-teams-bot:local
+    ports:
+      - "3978:3978"
+    environment:
+      <<: *common-env
+      AGENT_PORT: "3978"
+      MAIN_AGENT_URL: http://main-agent:8000
+    depends_on:
+      main-agent:
+        condition: service_healthy
+    restart: on-failure
