@@ -1,37 +1,28 @@
 """
-Shared Pydantic models and enums used across all agents.
-These are the typed messages that flow through the MAF WorkflowBuilder graph.
+Shared typed models for the local dev RAG pipeline.
+Mirrors container-code/shared/models.py — same shapes, no Pydantic on internals.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Literal
+from uuid import uuid4
 
 
 class Domain(StrEnum):
-    HR = "hr"
+    HR    = "hr"
     LEGAL = "legal"
-    IT = "it"
+    IT    = "it"
 
 
 class RetrievalTool(StrEnum):
-    HYBRID = "hybrid"       # BM25 + dense vector with RRF — default first pass
-    HYDE = "hyde"           # Hypothetical Document Embedding — vague / conceptual queries
-    DECOMPOSITION = "decomposition"  # Sub-question decomposition — complex / multi-part
+    HYBRID        = "hybrid"
+    HYDE          = "hyde"
+    DECOMPOSITION = "decomposition"
 
-
-class RetrievalStatus(StrEnum):
-    SUCCESS = "success"
-    RETRY = "retry"
-    FAILURE = "failure"
-
-
-# ── Messages flowing through the workflow graph ──────────────────────────────
 
 @dataclass
 class UserQuery:
-    """Ingress message from Teams bot."""
     text: str
     conversation_id: str
     user_id: str
@@ -39,25 +30,31 @@ class UserQuery:
 
 @dataclass
 class OrchestratorRequest:
-    """Issued by Orchestrator → Retrieval after classification."""
     query: str
     domain: Domain
     tool: RetrievalTool
-    attempt: int                 # 1-indexed, max 3
+    attempt: int
     conversation_id: str
     user_id: str
 
 
 @dataclass
+class SourceDocument:
+    title: str
+    excerpt: str
+    url: str   = ""
+    relevance: float = 0.0
+
+
+@dataclass
 class RetrievalResult:
-    """Issued by Retrieval → Orchestrator after a retrieval attempt."""
     query: str
     domain: Domain
     tool: RetrievalTool
     attempt: int
     answer: str
     confidence: float
-    sources: list[str]
+    sources: list[dict]          # serialised SourceDocument dicts
     conversation_id: str
     user_id: str
 
@@ -69,12 +66,12 @@ class RetrievalResult:
 
 @dataclass
 class FinalResponse:
-    """Issued by Orchestrator → Main for delivery to Teams."""
-    status: Literal["success", "failure"]
-    answer: str                  # populated on success; empty on failure
+    status: str                  # "success" | "failure"
+    answer: str
     domain: Domain | None
-    sources: list[str] = field(default_factory=list)
-    confidence: float = 0.0
-    attempts_used: int = 0
+    sources: list[dict] = field(default_factory=list)
+    confidence: float   = 0.0
+    attempts_used: int  = 0
     conversation_id: str = ""
-    user_id: str = ""
+    user_id: str         = ""
+    answer_id: str       = field(default_factory=lambda: f"ans-{uuid4().hex[:8]}")
