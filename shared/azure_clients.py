@@ -1,13 +1,13 @@
 """
 Lazy, cached Azure client factories.
 
-Uses Azure AI Foundry (AIProjectClient) as the single entry point for:
-  - Chat completions  → client.inference.get_chat_completions_client()
-  - Embeddings        → client.inference.get_embeddings_client()
-
-Auth:
-  - Local dev  : AzureCliCredential (az login)
+Auth strategy — fully keyless, no secrets in .env:
+  - Local dev  : AzureCliCredential  (az login is enough)
   - Azure (ACA): ManagedIdentityCredential
+
+The same credential object is reused for:
+  - Azure AI Foundry  (AIProjectClient → OpenAI chat + embeddings)
+  - Azure AI Search   (SearchClient — RBAC, no API key)
 """
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ import os
 from functools import lru_cache
 
 from azure.ai.projects import AIProjectClient
-from azure.core.credentials import AzureKeyCredential
 from azure.identity import AzureCliCredential, ManagedIdentityCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
@@ -50,19 +49,20 @@ def get_openai_client() -> AzureOpenAI:
     All tools (HyDE, decomposition, synthesis, embeddings) use this.
     """
     foundry = get_foundry_client()
-    # get_azure_openai_client() returns an openai.AzureOpenAI instance
-    # scoped to the project's Azure OpenAI connection — no separate endpoint needed.
     return foundry.inference.get_azure_openai_client(api_version=settings.AZURE_OPENAI_API_VERSION)
 
 
 @lru_cache(maxsize=8)
 def get_search_client(index_name: str) -> SearchClient:
+    """
+    Keyless Search client using the same AzureCliCredential / ManagedIdentity.
+    Requires your account to have the 'Search Index Data Reader' role on the
+    Search service (one-time setup — see README).
+    """
     return SearchClient(
         endpoint=str(settings.AZURE_SEARCH_ENDPOINT),
         index_name=index_name,
-        credential=AzureKeyCredential(
-            settings.AZURE_SEARCH_API_KEY.get_secret_value()
-        ),
+        credential=_credential(),
     )
 
 
@@ -70,9 +70,7 @@ def get_search_client(index_name: str) -> SearchClient:
 def get_search_index_client() -> SearchIndexClient:
     return SearchIndexClient(
         endpoint=str(settings.AZURE_SEARCH_ENDPOINT),
-        credential=AzureKeyCredential(
-            settings.AZURE_SEARCH_API_KEY.get_secret_value()
-        ),
+        credential=_credential(),
     )
 
 
