@@ -17,8 +17,11 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # ── Azure OpenAI ─────────────────────────────────────────────────────────
-    AZURE_OPENAI_ENDPOINT: AnyHttpUrl
+    # ── Azure AI Foundry ──────────────────────────────────────────────────────
+    # Format: https://<hub>.services.ai.azure.com/api/projects/<project>
+    AZURE_FOUNDRY_PROJECT_ENDPOINT: AnyHttpUrl
+
+    # Deployment names inside your Foundry project
     AZURE_OPENAI_CHAT_DEPLOYMENT: str = "gpt-4o"
     AZURE_OPENAI_EMBEDDING_DEPLOYMENT: str = "text-embedding-ada-002"
     AZURE_OPENAI_API_VERSION: str = "2024-08-01-preview"
@@ -31,8 +34,8 @@ class Settings(BaseSettings):
     AZURE_SEARCH_INDEX_IT: str = "idx-it"
     AZURE_SEARCH_SEMANTIC_CONFIG: str = "default"
 
-    # ── Azure Service Bus ─────────────────────────────────────────────────────
-    AZURE_SERVICE_BUS_CONNECTION_STR: SecretStr
+    # ── Azure Service Bus (only needed in production servicebus mode) ─────────
+    AZURE_SERVICE_BUS_CONNECTION_STR: SecretStr | None = None
     AZURE_SERVICE_BUS_QUEUE_INBOUND: str = "rag-inbound"
     AZURE_SERVICE_BUS_QUEUE_OUTBOUND: str = "rag-outbound"
 

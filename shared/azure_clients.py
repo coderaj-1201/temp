@@ -1,15 +1,22 @@
 """
 Lazy, cached Azure client factories.
-Using ManagedIdentityCredential in production per MAF recommendation.
-Falls back to DefaultAzureCredential for local dev (az login).
+
+Uses Azure AI Foundry (AIProjectClient) as the single entry point for:
+  - Chat completions  → client.inference.get_chat_completions_client()
+  - Embeddings        → client.inference.get_embeddings_client()
+
+Auth:
+  - Local dev  : AzureCliCredential (az login)
+  - Azure (ACA): ManagedIdentityCredential
 """
 from __future__ import annotations
 
 import os
 from functools import lru_cache
 
+from azure.ai.projects import AIProjectClient
 from azure.core.credentials import AzureKeyCredential
-from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
+from azure.identity import AzureCliCredential, ManagedIdentityCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from openai import AzureOpenAI
@@ -18,21 +25,34 @@ from shared.config import settings
 
 
 def _credential():
-    """Use Managed Identity in ACA; fall back to CLI/env for local dev."""
+    """AzureCliCredential locally (az login); ManagedIdentity inside ACA."""
     if os.getenv("RUNNING_IN_AZURE"):
         return ManagedIdentityCredential()
-    return DefaultAzureCredential()
+    return AzureCliCredential()
+
+
+@lru_cache(maxsize=1)
+def get_foundry_client() -> AIProjectClient:
+    """
+    Single AIProjectClient for the AI Foundry project.
+    Endpoint format: https://<hub>.services.ai.azure.com/api/projects/<project>
+    """
+    return AIProjectClient(
+        endpoint=str(settings.AZURE_FOUNDRY_PROJECT_ENDPOINT),
+        credential=_credential(),
+    )
 
 
 @lru_cache(maxsize=1)
 def get_openai_client() -> AzureOpenAI:
-    return AzureOpenAI(
-        azure_endpoint=str(settings.AZURE_OPENAI_ENDPOINT),
-        api_version=settings.AZURE_OPENAI_API_VERSION,
-        azure_ad_token_provider=lambda: _credential().get_token(
-            "https://cognitiveservices.azure.com/.default"
-        ).token,
-    )
+    """
+    Returns an openai.AzureOpenAI client pre-wired to your Foundry project.
+    All tools (HyDE, decomposition, synthesis, embeddings) use this.
+    """
+    foundry = get_foundry_client()
+    # get_azure_openai_client() returns an openai.AzureOpenAI instance
+    # scoped to the project's Azure OpenAI connection — no separate endpoint needed.
+    return foundry.inference.get_azure_openai_client(api_version=settings.AZURE_OPENAI_API_VERSION)
 
 
 @lru_cache(maxsize=8)

@@ -3,6 +3,7 @@ agent-framework-core>=1.0.0
 agent-framework-foundry>=1.0.0        # Azure AI Foundry integration
 
 # ── Azure SDKs ────────────────────────────────────────────────────────────────
+azure-ai-projects>=1.0.0              # AIProjectClient for AI Foundry
 azure-identity>=1.19.0
 azure-search-documents>=11.6.0
 azure-servicebus>=7.12.0
