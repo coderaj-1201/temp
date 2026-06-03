@@ -20,7 +20,7 @@ from shared.azure_clients import get_openai_client
 from shared.config import settings
 from shared.logging_config import configure_logging, get_logger
 from shared.models import OrchestratorRequest, RetrievalResult, SourceDocument
-from tools.hybrid_search_tool import SearchDocument, hybrid_search
+from tools.hybrid_search_tool import SearchDocument, fetch_parent_chunk, hybrid_search
 from tools.hyde_tool import generate_hypothetical_document
 from tools.query_decomposition_tool import decompose_query
 
@@ -67,7 +67,16 @@ async def synthesize_answer(query: str, docs: list[SearchDocument]) -> tuple[str
     if not docs:
         return "No relevant information found in the knowledge base.", 0.0, []
 
-    context = "\n\n".join(f"[{i+1}] Source: {d.source}\n{d.content}" for i, d in enumerate(docs))
+    context_parts = []
+    for i, d in enumerate(all_docs):
+        heading = getattr(d, "section_heading", "")
+        page    = getattr(d, "page_number", 0)
+        label   = f"[{i+1}] Source: {d.source}" + (f" (p.{page})" if page else "") + (f" | {heading}" if heading else "")
+        if getattr(d, "chunk_type", "") == "table" and getattr(d, "table_raw", ""):
+            context_parts.append(f"{label}\nSummary: {d.content}\nTable:\n{d.table_raw}")
+        else:
+            context_parts.append(f"{label}\n{d.content}")
+    context = "\n\n".join(context_parts)
 
     resp = await asyncio.to_thread(
         get_openai_client().chat.completions.create,
@@ -106,7 +115,18 @@ async def retrieval_workflow(request: OrchestratorRequest) -> RetrievalResult:
         case "decomposition": docs = await run_decomposition(request.query, request.domain)
         case _:               docs = await run_hybrid(request.query, request.domain)
 
-    answer, confidence, source_docs = await synthesize_answer(request.query, docs)
+    # Parent-child: fetch parent chunks for context enrichment
+    # Child chunks matched by vector search → parent gives full section context to LLM
+    parent_ids = list({d.parent_id for d in docs if d.parent_id})
+    parent_docs = []
+    for pid in parent_ids[:3]:   # cap at 3 parents to stay within context window
+        parent = await asyncio.to_thread(fetch_parent_chunk, pid)
+        if parent:
+            parent_docs.append(parent)
+    # Merge: child chunks first (high relevance), then their parents (full context)
+    all_docs = docs + [p for p in parent_docs if p.id not in {d.id for d in docs}]
+
+    answer, confidence, source_docs = await synthesize_answer(request.query, all_docs)
 
     logger.info("retrieval complete confidence=%.3f", confidence)
 
