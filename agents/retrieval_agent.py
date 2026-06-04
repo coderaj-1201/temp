@@ -101,7 +101,7 @@ async def synthesize_answer(query: str, all_docs: list[SearchDocument]) -> tuple
 
     sources = [
         SourceDocument(title=d.source, excerpt=d.content[:200], url="", relevance=round(d.score, 3))
-        for d in docs[:3]
+        for d in all_docs[:3]
     ]
     return answer, round(min(max(confidence, 0.0), 1.0), 3), sources
 
