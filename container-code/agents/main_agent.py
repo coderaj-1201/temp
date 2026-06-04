@@ -77,16 +77,12 @@ async def _enqueue_evaluation(final: FinalResponse, query: str, elapsed_ms: int)
             conversation_id    = final.conversation_id,
             evaluated_at       = datetime.now(timezone.utc).isoformat(),
         )
-        from azure.identity.aio import AzureCliCredential, ManagedIdentityCredential
+        from azure.identity.aio import AzureCliCredential
         from azure.servicebus.aio import ServiceBusClient as AsyncSBClient
 
-        credential = (
-            ManagedIdentityCredential() if os.getenv("RUNNING_IN_AZURE")
-            else AzureCliCredential()
-        )
         async with AsyncSBClient(
             fully_qualified_namespace=settings.AZURE_SERVICE_BUS_NAMESPACE,
-            credential=credential,
+            credential=AzureCliCredential(),
         ) as sb:
             async with sb.get_queue_sender(settings.AZURE_SERVICE_BUS_QUEUE_EVALUATION) as sender:
                 msg = ServiceBusMessage(

@@ -1,42 +1,12 @@
 """
-Structured logging with Azure Application Insights via OpenTelemetry.
-
-Locally: JSON logs to stdout (readable in terminal / Docker logs)
-In ACA:  Same JSON → picked up by Log Analytics workspace automatically
-         + App Insights for distributed tracing across all 3 agents
-
-Log Analytics query (Azure Portal → Log Analytics → Logs):
-  ContainerAppConsoleLogs_CL
-  | where ContainerName_s contains "rag"
-  | project TimeGenerated, Log_s
-  | order by TimeGenerated desc
+Logging — LOCAL DEV version.
+Plain human-readable stdout logs instead of JSON.
+App Insights wired in only if connection string is set (optional).
 """
 from __future__ import annotations
 
-import json
 import logging
 import sys
-from datetime import datetime, timezone
-
-
-class StructuredFormatter(logging.Formatter):
-    """Emits each log line as a single JSON object."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        log_obj = {
-            "time": datetime.now(timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "msg": record.getMessage(),
-            "module": record.module,
-        }
-        if record.exc_info:
-            log_obj["exception"] = self.formatException(record.exc_info)
-        # Any extra fields passed via extra={} in logger calls
-        for key in ("conversation_id", "user_id", "domain", "tool", "attempt", "confidence"):
-            if hasattr(record, key):
-                log_obj[key] = getattr(record, key)
-        return json.dumps(log_obj)
 
 
 def configure_logging(service_name: str = "rag") -> None:
@@ -44,19 +14,18 @@ def configure_logging(service_name: str = "rag") -> None:
 
     level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
 
+    fmt = f"%(asctime)s  [{service_name}]  %(levelname)-8s  %(name)s — %(message)s"
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(StructuredFormatter())
+    handler.setFormatter(logging.Formatter(fmt, datefmt="%H:%M:%S"))
 
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers.clear()
     root.addHandler(handler)
 
-    # Silence noisy libraries
     for noisy in ("azure.core", "azure.identity", "httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
-    # Wire up Azure Application Insights (works locally too if conn string set)
     if settings.APPLICATIONINSIGHTS_CONNECTION_STRING:
         try:
             from azure.monitor.opentelemetry import configure_azure_monitor
@@ -64,13 +33,8 @@ def configure_logging(service_name: str = "rag") -> None:
                 connection_string=settings.APPLICATIONINSIGHTS_CONNECTION_STRING,
                 service_name=service_name,
             )
-            logging.getLogger(__name__).info(
-                "Azure Monitor OpenTelemetry configured for service '%s'.", service_name
-            )
         except ImportError:
-            logging.getLogger(__name__).warning(
-                "azure-monitor-opentelemetry not installed — App Insights skipped."
-            )
+            pass
 
 
 def get_logger(name: str) -> logging.Logger:

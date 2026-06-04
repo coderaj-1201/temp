@@ -1,18 +1,13 @@
 """
-Azure client factories — production grade.
-Fully keyless. Worker-safe per-process singletons.
-
-CosmosDB: singleton is NOT used as a context manager — it is long-lived and
-closed explicitly on app shutdown. Callers must NOT wrap get_cosmos_client()
-in `async with`; use the container client directly.
+Azure client factories — LOCAL DEV version.
+Uses AzureCliCredential everywhere (run `az login` once before starting).
+No Managed Identity, no Key Vault.
 """
 from __future__ import annotations
 
-import os
-
 from azure.ai.projects import AIProjectClient
 from azure.cosmos.aio import CosmosClient
-from azure.identity import ManagedIdentityCredential, AzureCliCredential
+from azure.identity import AzureCliCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.servicebus.aio import ServiceBusClient
@@ -22,8 +17,6 @@ from shared.config import settings
 
 
 def _credential():
-    if os.getenv("RUNNING_IN_AZURE"):
-        return ManagedIdentityCredential()
     return AzureCliCredential()
 
 
@@ -76,11 +69,8 @@ def get_search_index_client() -> SearchIndexClient:
 
 def get_cosmos_client() -> CosmosClient:
     """
-    Long-lived async CosmosDB client singleton.
-    Do NOT use as `async with get_cosmos_client()` — that would close the
-    connection after every call. Instead call get_cosmos_client() directly
-    and use the returned client for container operations.
-    Close explicitly at app shutdown via close_cosmos_client().
+    Long-lived async CosmosDB singleton.
+    Do NOT use as `async with` — use directly, close via close_cosmos_client().
     """
     global _cosmos
     if _cosmos is None:
@@ -92,7 +82,6 @@ def get_cosmos_client() -> CosmosClient:
 
 
 async def close_cosmos_client() -> None:
-    """Call from FastAPI lifespan shutdown to cleanly close the CosmosDB connection."""
     global _cosmos
     if _cosmos is not None:
         await _cosmos.close()

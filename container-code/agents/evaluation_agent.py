@@ -178,18 +178,14 @@ async def evaluation_workflow(payload: EvaluationPayload) -> EvaluationResult:
 async def _sb_listener():
     logger.info("Evaluation Agent SB listener on queue '%s'",
                 settings.AZURE_SERVICE_BUS_QUEUE_EVALUATION)
-    from azure.identity.aio import AzureCliCredential, ManagedIdentityCredential
+    from azure.identity.aio import AzureCliCredential
     from azure.servicebus.aio import ServiceBusClient as AsyncSBClient
 
     while True:
         try:
-            credential = (
-                ManagedIdentityCredential() if os.getenv("RUNNING_IN_AZURE")
-                else AzureCliCredential()
-            )
             async with AsyncSBClient(
                 fully_qualified_namespace=settings.AZURE_SERVICE_BUS_NAMESPACE,
-                credential=credential,
+                credential=AzureCliCredential(),
             ) as sb:
                 async with sb.get_queue_receiver(
                     settings.AZURE_SERVICE_BUS_QUEUE_EVALUATION,
