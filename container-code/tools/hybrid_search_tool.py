@@ -65,7 +65,8 @@ def hybrid_search(
     k = top_k or settings.RETRIEVAL_TOP_K
     client = get_search_client()
 
-    odata_filter = f"domain eq '{domain}' and is_deleted eq false"
+    safe_domain  = domain.replace("'", "''")
+    odata_filter = f"domain eq '{safe_domain}' and is_deleted eq false"
     if chunk_types:
         type_filter = " or ".join(f"chunk_type eq '{t}'" for t in chunk_types)
         odata_filter += f" and ({type_filter})"

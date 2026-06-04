@@ -86,6 +86,8 @@ async def feedback_workflow(request: FeedbackRequest, domain: str) -> FeedbackRe
 async def lifespan(app: FastAPI):
     logger.info("Feedback Agent started.")
     yield
+    from shared.azure_clients import close_cosmos_client
+    await close_cosmos_client()
     logger.info("Feedback Agent stopped.")
 
 

@@ -4,13 +4,18 @@ Azure Service Bus messaging — production grade.
 Uses Managed Identity (no connection strings).
 Handles:
   - Send with correlation ID
-  - Receive with correlation filtering
+  - Receive with session-based correlation (no race condition)
   - Dead letter queue monitoring
   - Proper message settlement (complete / abandon / dead-letter)
 
 Message flow:
-  Orchestrator  → INBOUND queue  → Retrieval agent consumes
-  Retrieval     → OUTBOUND queue → Orchestrator correlates by correlation_id
+  Orchestrator  → INBOUND queue (sessionful)  → Retrieval agent consumes
+  Retrieval     → OUTBOUND queue (sessionful) → Orchestrator receives on its session_id
+
+IMPORTANT: rag-inbound and rag-outbound queues MUST have "Session" enabled in Azure.
+Each orchestrator request uses its correlation_id as the session_id on the outbound queue.
+This eliminates the race condition where multiple concurrent requests would
+compete for and abandon each other's messages on a shared non-sessioned queue.
 """
 from __future__ import annotations
 
@@ -18,7 +23,6 @@ import asyncio
 import json
 import logging
 import uuid
-from dataclasses import asdict
 
 from azure.servicebus import ServiceBusMessage
 from azure.servicebus.aio import ServiceBusClient
@@ -28,7 +32,6 @@ from shared.config import settings
 logger = logging.getLogger(__name__)
 
 _RESPONSE_TIMEOUT = 90   # seconds to wait for a retrieval response
-_MAX_WAIT_TIME    = 5    # seconds per receive batch poll
 
 
 async def send_retrieval_request(sb_client: ServiceBusClient, payload: dict, correlation_id: str) -> None:
@@ -36,6 +39,7 @@ async def send_retrieval_request(sb_client: ServiceBusClient, payload: dict, cor
         msg = ServiceBusMessage(
             body=json.dumps(payload),
             correlation_id=correlation_id,
+            session_id=correlation_id,          # ← session-per-request
             content_type="application/json",
             message_id=str(uuid.uuid4()),
         )
@@ -45,31 +49,37 @@ async def send_retrieval_request(sb_client: ServiceBusClient, payload: dict, cor
 
 async def receive_retrieval_response(sb_client: ServiceBusClient, correlation_id: str) -> dict:
     """
-    Poll the outbound queue for a message matching our correlation_id.
-    Messages not matching are abandoned (left for other consumers / next poll).
+    Receive the response for this specific correlation_id using Service Bus sessions.
+    Each orchestrator request opens a receiver scoped to its own session_id,
+    so there is no cross-request message competition.
+
+    Requires rag-outbound queue to have Sessions enabled.
     Raises asyncio.TimeoutError after _RESPONSE_TIMEOUT seconds.
     """
-    deadline = asyncio.get_event_loop().time() + _RESPONSE_TIMEOUT
-
     async with sb_client.get_queue_receiver(
         settings.AZURE_SERVICE_BUS_QUEUE_OUTBOUND,
-        max_wait_time=_MAX_WAIT_TIME,
+        session_id=correlation_id,              # ← scoped to this request only
     ) as receiver:
-        while asyncio.get_event_loop().time() < deadline:
-            messages = await receiver.receive_messages(max_message_count=10, max_wait_time=_MAX_WAIT_TIME)
-            for msg in messages:
-                if msg.correlation_id == correlation_id:
-                    data = json.loads(b"".join(msg.body))
-                    await receiver.complete_message(msg)
-                    logger.debug("SB received outbound correlation_id=%s", correlation_id)
-                    return data
-                else:
-                    # Not ours — put back for the rightful consumer
-                    await receiver.abandon_message(msg)
+        try:
+            messages = await receiver.receive_messages(
+                max_message_count=1,
+                max_wait_time=_RESPONSE_TIMEOUT,
+            )
+        except Exception as exc:
+            raise asyncio.TimeoutError(
+                f"No SB response within {_RESPONSE_TIMEOUT}s for correlation_id={correlation_id}"
+            ) from exc
 
-    raise asyncio.TimeoutError(
-        f"No SB response within {_RESPONSE_TIMEOUT}s for correlation_id={correlation_id}"
-    )
+        if not messages:
+            raise asyncio.TimeoutError(
+                f"No SB response within {_RESPONSE_TIMEOUT}s for correlation_id={correlation_id}"
+            )
+
+        msg = messages[0]
+        data = json.loads(b"".join(msg.body))
+        await receiver.complete_message(msg)
+        logger.debug("SB received outbound correlation_id=%s", correlation_id)
+        return data
 
 
 async def send_retrieval_response(sb_client: ServiceBusClient, payload: dict, correlation_id: str) -> None:
@@ -77,6 +87,7 @@ async def send_retrieval_response(sb_client: ServiceBusClient, payload: dict, co
         msg = ServiceBusMessage(
             body=json.dumps(payload),
             correlation_id=correlation_id,
+            session_id=correlation_id,          # ← must match what orchestrator is waiting on
             content_type="application/json",
             message_id=str(uuid.uuid4()),
         )

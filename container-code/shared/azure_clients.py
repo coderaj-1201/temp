@@ -1,6 +1,10 @@
 """
 Azure client factories — production grade.
 Fully keyless. Worker-safe per-process singletons.
+
+CosmosDB: singleton is NOT used as a context manager — it is long-lived and
+closed explicitly on app shutdown. Callers must NOT wrap get_cosmos_client()
+in `async with`; use the container client directly.
 """
 from __future__ import annotations
 
@@ -71,7 +75,13 @@ def get_search_index_client() -> SearchIndexClient:
 
 
 def get_cosmos_client() -> CosmosClient:
-    """Async CosmosDB client — use as async context manager or call aclose() on shutdown."""
+    """
+    Long-lived async CosmosDB client singleton.
+    Do NOT use as `async with get_cosmos_client()` — that would close the
+    connection after every call. Instead call get_cosmos_client() directly
+    and use the returned client for container operations.
+    Close explicitly at app shutdown via close_cosmos_client().
+    """
     global _cosmos
     if _cosmos is None:
         _cosmos = CosmosClient(
@@ -79,6 +89,14 @@ def get_cosmos_client() -> CosmosClient:
             credential=_credential(),
         )
     return _cosmos
+
+
+async def close_cosmos_client() -> None:
+    """Call from FastAPI lifespan shutdown to cleanly close the CosmosDB connection."""
+    global _cosmos
+    if _cosmos is not None:
+        await _cosmos.close()
+        _cosmos = None
 
 
 def get_service_bus_client() -> ServiceBusClient:

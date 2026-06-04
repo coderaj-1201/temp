@@ -221,6 +221,8 @@ async def lifespan(app: FastAPI):
         await task
     except asyncio.CancelledError:
         pass
+    from shared.azure_clients import close_cosmos_client
+    await close_cosmos_client()
     logger.info("Evaluation Agent stopped.")
 
 

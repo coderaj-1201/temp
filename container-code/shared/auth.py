@@ -3,16 +3,18 @@ Entra ID (Azure AD) token validation middleware.
 
 Validates Bearer tokens issued by Teams / MSAL to your app registration.
 Uses python-jose for JWT decode + fetches JWKS from Microsoft's well-known endpoint.
+JWKS is cached with a 24-hour TTL — Microsoft rotates keys periodically.
 
 Flow:
   Teams user opens bot → Teams attaches access token to every request
   → FastAPI Depends(verify_token) validates it
-  → Returns claims dict {oid, unique_name, name, tid}
+  → Returns claims dict {oid, unique_name, name, tid, _raw_token}
 """
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
+import time
+from typing import Optional
 
 import httpx
 from fastapi import Header, HTTPException
@@ -30,18 +32,33 @@ _ISSUER = (
     f"https://login.microsoftonline.com/{settings.AZURE_TENANT_ID}/v2.0"
 )
 
+_JWKS_TTL_SECONDS = 86_400  # 24 hours
 
-@lru_cache(maxsize=1)
+_jwks_cache: Optional[dict] = None
+_jwks_fetched_at: float = 0.0
+
+
 def _get_jwks() -> dict:
-    """Fetch Microsoft's public signing keys. Cached per process."""
+    """
+    Fetch Microsoft's public signing keys with a 24-hour TTL cache.
+    Microsoft rotates keys periodically — lru_cache would hold stale keys forever.
+    """
+    global _jwks_cache, _jwks_fetched_at
+    now = time.monotonic()
+    if _jwks_cache is not None and (now - _jwks_fetched_at) < _JWKS_TTL_SECONDS:
+        return _jwks_cache
     resp = httpx.get(_JWKS_URL, timeout=10)
     resp.raise_for_status()
-    return resp.json()
+    _jwks_cache = resp.json()
+    _jwks_fetched_at = now
+    logger.info("JWKS refreshed from Microsoft endpoint")
+    return _jwks_cache
 
 
 async def verify_token(authorization: str = Header(...)) -> dict:
     """
     FastAPI dependency — validates Entra ID Bearer token.
+    Injects _raw_token into claims so downstream code can forward it.
 
     Usage:
         @router.post("/api/chat")
@@ -64,6 +81,8 @@ async def verify_token(authorization: str = Header(...)) -> dict:
             issuer=_ISSUER,
             options={"verify_at_hash": False},
         )
+        # Attach raw token so downstream agents can forward it in Authorization headers
+        claims["_raw_token"] = token
         return claims
 
     except JWTError as exc:
