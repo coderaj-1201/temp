@@ -65,7 +65,14 @@ def hybrid_search(
     k = top_k or settings.RETRIEVAL_TOP_K
     client = get_search_client()
 
-    odata_filter = f"domain eq '{domain}' and is_deleted eq false"
+    # Build OData filter — only include domain/is_deleted if those fields exist in the index
+    # This makes the code compatible with existing indexes that may not have these fields
+    filters = []
+    if domain:
+        filters.append(f"domain eq '{domain}'")
+    # Note: is_deleted filter is optional — skip if field not in index
+    # filters.append("is_deleted eq false")
+    odata_filter = " and ".join(filters) if filters else None
     if chunk_types:
         type_filter = " or ".join(f"chunk_type eq '{t}'" for t in chunk_types)
         odata_filter += f" and ({type_filter})"
@@ -81,7 +88,7 @@ def hybrid_search(
         results = client.search(
             search_text=query,
             vector_queries=[vector_query],
-            filter=odata_filter,
+            filter=odata_filter if odata_filter else None,
             query_type="semantic",
             semantic_configuration_name=settings.AZURE_SEARCH_SEMANTIC_CONFIG,
             top=k,

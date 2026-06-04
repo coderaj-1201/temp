@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     AZURE_SEARCH_SEMANTIC_CONFIG: str     = "rag-semantic-config"
 
     # ── RAG tuning ────────────────────────────────────────────────────────────
-    CONFIDENCE_THRESHOLD: float  = Field(default=0.75, ge=0.0, le=1.0)
+    CONFIDENCE_THRESHOLD: float  = Field(default=0.30, ge=0.0, le=1.0)  # lower default for compatibility with existing indexes
     MAX_RETRIEVAL_ATTEMPTS: int  = Field(default=3,    ge=1,   le=5)
     RETRIEVAL_TOP_K: int         = Field(default=5,    ge=1,   le=20)
     SYNTHESIS_TEMPERATURE: float = Field(default=0.0,  ge=0.0, le=1.0)
